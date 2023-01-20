@@ -1,3 +1,7 @@
+"""
+Modified Jiaao 1/18/2023 to add channel map information.
+"""
+
 from hdmf.backends.hdf5.h5_utils import H5DataIO
 
 import numpy as np       
@@ -58,7 +62,7 @@ def create_intan_device(nwbfile, header):
                                  manufacturer='Intan Technologies'
                                 )
 
-def create_electrode_table_region(nwbfile, header, intan_device):
+def create_electrode_table_region(nwbfile, header, intan_device, probe_map):
     """ Create 'electrode table region' object for the electrodes that the data was acquired with.
     
     Parameters
@@ -69,6 +73,10 @@ def create_electrode_table_region(nwbfile, header, intan_device):
         Dict containing previously read header information
     intan_device : pynwb.device.Device
         Previously created NWB device representing Intan system
+    probe_map : dict
+        Probe Map information; key: channel native id (0-31 or 0-127, etc.); value: geoposition
+        not all key-value pairs will be used; some channels may be rejected at measurement. 
+    
     
     Returns
     -------
@@ -87,7 +95,7 @@ def create_electrode_table_region(nwbfile, header, intan_device):
         created_electrode_groups = {}
         
     for channel in range(header['num_amplifier_channels']):
-        group_name = 'Intan ' + header['amplifier_channels'][channel]['port_name'] + ' electrode group';
+        group_name = "0"# f"{channel}"# 'Intan ' + header['amplifier_channels'][channel]['port_name'] + ' electrode group';
         if not (group_name in created_electrode_groups):
             electrode_group = nwbfile.create_electrode_group(name=group_name,
                                                              description='description',
@@ -99,18 +107,24 @@ def create_electrode_table_region(nwbfile, header, intan_device):
     for channel in range(header['num_amplifier_channels']):
         this_channel_struct = header['amplifier_channels'][channel]
         custom_channel_name = this_channel_struct['custom_channel_name']
-        group_name = 'Intan ' + this_channel_struct['port_name'] + ' electrode group'
+        group_name = "0"# f"{channel}"# 'Intan ' + this_channel_struct['port_name'] + ' electrode group'
         description = 'electrode for channel ' + custom_channel_name # apparently this description is unused - how to give channel name?
         location = 'none'
+        geom_coordinate = tuple(map(float, probe_map[int(this_channel_struct['native_channel_name'][2:])])) # this yields a tuple
+        if len(geom_coordinate)<=1:
+            raise ValueError(f"Expected geom_coordinate to be at least 2D. Got ndim={len(geom_coordinate)}")
+        # if geom_coordinate.shape[0]==2:
+            # geom_coordinate = np.concatenate([geom_coordinate, [0.0]])
+        geom_coord_z = 0.0 if len(geom_coordinate)==2 else geom_coordinate[2]
         nwbfile.add_electrode(id=channel,
-                              x=0.0,
-                              y=0.0,
-                              z=0.0,
+                              rel_x=geom_coordinate[0],
+                              rel_y=geom_coordinate[1],
+                              rel_z=geom_coord_z,
                               imp=this_channel_struct['electrode_impedance_magnitude'],
                               imp_phase=this_channel_struct['electrode_impedance_phase'],
                               native_channel_name=this_channel_struct['native_channel_name'],
                               custom_channel_name=this_channel_struct['custom_channel_name'],
-                              location=location,
+                              location='none',#geom_coordinate,
                               filtering='none',
                               group=created_electrode_groups[group_name])
               

@@ -1,3 +1,8 @@
+'''
+Sauce: https://github.com/Intan-Technologies/IntanToNWB/blob/main/ConvertIntanToNWB.py
+Modified by Jiaao 20230104 : Copy all data to avoid any symlink.
+'''
+
 import math, time, pynwb
 import os.path
 
@@ -22,7 +27,8 @@ def convert_to_nwb(settings_filename=None,
                    highpass_description=None,
                    merge_files=None,
                    subject=None,
-                   manual_start_time=None
+                   manual_start_time=None,
+                   probe_map=None
                   ):
     """ Convert the specified Intan file(s) to NWB format.
     
@@ -63,6 +69,9 @@ def convert_to_nwb(settings_filename=None,
     manual_start_time : datetime.datetime or None
         If present, this contains the date and time that the recording session started.
         If not, an attempt will be made to parse the .rhd file name for a timestamp to use.
+    probe_map : dict
+        Probe Map information; key: channel native id (0-31 or 0-127, etc.); value: (list or ndarray) geoposition of the channel
+        not all key-value pairs will be used; some channels may be rejected at measurement. 
     
     Returns
     -------
@@ -209,7 +218,7 @@ def convert_to_nwb(settings_filename=None,
     intan_device = create_intan_device(nwbfile, header)
     
     # Create 'electrode_table_region' object
-    electrode_table_region = create_electrode_table_region(nwbfile, header, intan_device)
+    electrode_table_region = create_electrode_table_region(nwbfile, header, intan_device, probe_map)
     
     # Initialize variables before conversion begins
     chunks_to_read = initialize_chunk_list(total_num_data_blocks, blocks_per_chunk)
@@ -395,13 +404,8 @@ def convert_to_nwb(settings_filename=None,
                 else:
                     resolution=312.5e-6
                     
-                # If the amplifier ElectricalSeries has already been created, recycle that for its timestamps
-                if header['num_amplifier_channels'] > 0:
-                    board_adc_timestamps = amplifier_series
-                    
-                # Otherwise, set up board adc timestamps
-                else:
-                    board_adc_timestamps = wrapped_data.t
+                
+                board_adc_timestamps = wrapped_data.t
                 
                 # Create TimeSeries for board adc data
                 board_adc_series = pynwb.TimeSeries(name='TimeSeries_analog_input',
@@ -416,12 +420,7 @@ def convert_to_nwb(settings_filename=None,
             if not rhd:
                 if header['num_board_dac_channels'] > 0:
                     
-                    if header['num_amplifier_channels'] > 0:
-                        board_dac_timestamps = amplifier_series
-                        
-                    else:
-                        board_dac_timestamps = wrapped_data.t
-                    
+                    board_dac_timestamps = wrapped_data.t
                     board_dac_series = pynwb.TimeSeries(name='TimeSeries_analog_output',
                                                   data=wrapped_data.data_board_dac,
                                                   resolution=312.5e-6,
@@ -433,19 +432,7 @@ def convert_to_nwb(settings_filename=None,
                 
             if header['num_board_dig_in_channels'] > 0:
                 
-                # If the amplifier ElectricalSeries has already been created, recycle that for its timestamps
-                if header['num_amplifier_channels'] > 0:
-                    board_dig_in_timestamps = amplifier_series
-                    
-                # Otherwise,
-                else:
-                    # If the board adc TimeSeries has already been created, recycle that for its timestamps
-                    if header['num_board_adc_channels'] > 0:
-                        board_dig_in_timestamps = board_adc_series
-                        
-                    # Otherwise, set up board dig in timestamps
-                    else:
-                        board_dig_in_timestamps = wrapped_data.t
+                board_dig_in_timestamps = wrapped_data.t
                 
                 # Create TimeSeries for digital input data
                 board_dig_in_series = pynwb.TimeSeries(name='TimeSeries_digital_input',
@@ -458,25 +445,7 @@ def convert_to_nwb(settings_filename=None,
                 
             if header['num_board_dig_out_channels'] > 0:
                 
-                # If the amplifier ElectricalSeries has already been created, recycle that for its timestamps
-                if header['num_amplifier_channels'] > 0:
-                    board_dig_out_timestamps = amplifier_series
-                    
-                # Otherwise,
-                else:
-                    # If the board adc TimeSeries has already been created, recycle that for its timestamps
-                    if header['num_board_adc_channels'] > 0:
-                        board_dig_out_timestamps = board_adc_series
-                        
-                    # Otherwise,
-                    else:
-                        # If the board dig in TimeSeries has already been created, recycle that for its timestamps
-                        if header['num_board_dig_in_channels'] > 0:
-                            board_dig_out_timestamps = board_dig_in_series
-                        
-                        # Otherwise, set up board dig out timestamps
-                        else:
-                            board_dig_out_timestamps = wrapped_data.t
+                board_dig_out_timestamps = wrapped_data.t
                 
                 # Create TimeSeries for digital output data
                 board_dig_out_series = pynwb.TimeSeries(name='TimeSeries_digital_output',
@@ -490,13 +459,7 @@ def convert_to_nwb(settings_filename=None,
             if rhd:
                 if header['num_temp_sensor_channels'] > 0:
 
-                    # If the supply voltage TimeSeries has already been created, recycle that for its timestamps
-                    if header['num_supply_voltage_channels'] > 0:
-                        temp_sensor_timestamps = supply_voltage_series
-
-                    # Otherwise, use temp sensor timestamps
-                    else:
-                        temp_sensor_timestamps = wrapped_data.t_supply_voltage
+                    temp_sensor_timestamps = wrapped_data.t_supply_voltage
 
                     # Create TimeSeries for temp sensor data
                     temp_sensor_series = pynwb.TimeSeries(name='TimeSeries_temperature_sensor',
@@ -552,41 +515,28 @@ def convert_to_nwb(settings_filename=None,
                     # Append temp sensor data
                     if header['num_temp_sensor_channels'] > 0:
                         append_to_dataset(append_nwbfile.acquisition['TimeSeries_temperature_sensor'].data, wrapped_data.data_temp)
-                        # If the timestamps vector hasn't been already appended via supply voltage data, append it here
-                        if header['num_supply_voltage_channels'] == 0:
-                            append_to_dataset(append_nwbfile.acquisition['TimeSeries_temperature_sensor'].timestamps, wrapped_data.t_supply_voltage)
+                        append_to_dataset(append_nwbfile.acquisition['TimeSeries_temperature_sensor'].timestamps, wrapped_data.t_supply_voltage)
                             
                 else:
                     # Append board dac data
                     if header['num_board_dac_channels'] > 0:
                         append_to_dataset(append_nwbfile.acquisition['TimeSeries_analog_output'].data, wrapped_data.data_board_dac)
-                        # If the timestamps vector hasn't already been appended via amplifier data, append it here
-                        if header['num_amplifier_channels'] == 0:
-                            append_to_dataset(append_nwbfile.acquisition['TimeSeries_analog_output'].timestamps, wrapped_data.t)
+                        append_to_dataset(append_nwbfile.acquisition['TimeSeries_analog_output'].timestamps, wrapped_data.t)
                     
                 # Append board adc data
                 if header['num_board_adc_channels'] > 0:
                     append_to_dataset(append_nwbfile.acquisition['TimeSeries_analog_input'].data, wrapped_data.data_board_adc)
-                    # If the timestamps vector hasn't been already appended via amplifier data, append it here
-                    if header['num_amplifier_channels'] == 0:
-                        append_to_dataset(append_nwbfile.acquisition['TimeSeries_analog_input'].timestamps, wrapped_data.t)
+                    append_to_dataset(append_nwbfile.acquisition['TimeSeries_analog_input'].timestamps, wrapped_data.t)
                     
                 # Append board dig in data
                 if header['num_board_dig_in_channels'] > 0:
                     append_to_dataset(append_nwbfile.acquisition['TimeSeries_digital_input'].data, wrapped_data.data_board_dig_in)
-                    # If the timestamps vector hasn't been already appended via amplifier data or adc data, append it here
-                    if header['num_amplifier_channels'] == 0:
-                        if header['num_board_adc_channels'] == 0:
-                            append_to_dataset(append_nwbfile.acquisition['TimeSeries_digital_input'].timestamps, wrapped_data.t)
+                    append_to_dataset(append_nwbfile.acquisition['TimeSeries_digital_input'].timestamps, wrapped_data.t)
                     
                 # Append board dig out data
                 if header['num_board_dig_out_channels'] > 0:
                     append_to_dataset(append_nwbfile.acquisition['TimeSeries_digital_output'].data, wrapped_data.data_board_dig_out)
-                    # If the timestamps vector hasn't been already appended via amplifier data, adc data, or dig in data, append it here
-                    if header['num_amplifier_channels'] == 0:
-                        if header['num_board_adc_channels'] == 0:
-                            if header['num_board_dig_in_channels'] == 0:
-                                append_to_dataset(append_nwbfile.acquisition['TimeSeries_digital_output'].timestamps, wrapped_data.t)
+                    append_to_dataset(append_nwbfile.acquisition['TimeSeries_digital_output'].timestamps, wrapped_data.t)
                 
                 io.write(append_nwbfile)                 
         
