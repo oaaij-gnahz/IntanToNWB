@@ -2,14 +2,27 @@ import ipywidgets as widgets
 from ConvertIntanToNWB import *
 
 def main():
-    
-    ui = ConverterUI()
+    positions = [(0,-1860), (0, -1800), (0, -1740), (0,-1680),
+            (0,-1620), (0, -1560), (0, -1500), (0, -1440),
+            (0, -1380), (0, -1320), (0, -1260), (0, -1200),
+            (0, -1140), (0, -1080), (0, -1020), (0, -960),
+            (0, -900), (0, -840), (0, -780), (0, -720),
+            (0, -660), (0, -600), (0, -540), (0, -480),
+            (0, -420), (0, -360), (0, -300), (0, -240),
+            (0, -180), (0, -120), (0, -60), (0, 0)]
+
+    DCI = (3,24,2,25,1,26,0,27,4,31,5,30,6,29,7,28,12,23,13,22,14,21,15,20,11,16,10,17,9,18,8,19)#RYchip&Fei adaptor
+
+    probe_map = dict(zip(DCI, positions))
+    ui = ConverterUI(probe_map)
     
 class ConverterUI:
     
-    def __init__(self):
+    def __init__(self, probe_map):
+        self.probe_map = probe_map
         self.create_widgets()
         self.display_widgets()
+        
         
     def create_widgets(self):
         self.settings_label = widgets.HTML(value='<b>Conversion Settings</b>')
@@ -296,7 +309,8 @@ class ConverterUI:
                        highpass_description=self.highpass_description_text.value,
                        merge_files=self.merge_checkbox.value,
                        subject=subject,
-                       manual_start_time=manual_start_time)
+                       manual_start_time=manual_start_time,
+                       probe_map=self.probe_map)
 
         # After conversion finished, update widgets to their proper 'disable' state
         self.update_widgets()
